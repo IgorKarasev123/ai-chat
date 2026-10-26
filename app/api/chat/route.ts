@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 
+import { MESSAGE_LIMIT, type ChatMessage } from "@/lib/chat";
+
 type ChatRequestBody = {
   model?: unknown;
-  text?: unknown;
+  messages?: unknown;
 };
 
 type PolzaChoice = {
@@ -17,6 +19,43 @@ type PolzaResponse = {
     message?: string;
   };
 };
+
+function parseMessages(value: unknown): ChatMessage[] | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+
+  if (value.length > MESSAGE_LIMIT) {
+    return null;
+  }
+
+  const messages: ChatMessage[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      return null;
+    }
+
+    const role = (item as { role?: unknown }).role;
+    const content = (item as { content?: unknown }).content;
+
+    if (role !== "user" && role !== "assistant") {
+      return null;
+    }
+
+    if (typeof content !== "string" || !content.trim()) {
+      return null;
+    }
+
+    messages.push({ role, content: content.trim() });
+  }
+
+  if (messages[messages.length - 1]?.role !== "user") {
+    return null;
+  }
+
+  return messages;
+}
 
 export async function POST(request: Request) {
   const apiKey = process.env.POLZA_API_KEY;
@@ -37,14 +76,19 @@ export async function POST(request: Request) {
   }
 
   const model = typeof body.model === "string" ? body.model.trim() : "";
-  const text = typeof body.text === "string" ? body.text.trim() : "";
+  const messages = parseMessages(body.messages);
 
   if (!model) {
     return NextResponse.json({ error: "Выбери модель" }, { status: 400 });
   }
 
-  if (!text) {
-    return NextResponse.json({ error: "Введи текст" }, { status: 400 });
+  if (!messages) {
+    return NextResponse.json(
+      {
+        error: `Нужен массив messages (1–${MESSAGE_LIMIT}), последнее — от пользователя`,
+      },
+      { status: 400 },
+    );
   }
 
   const polzaResponse = await fetch(
@@ -57,7 +101,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: "user", content: text }],
+        messages,
       }),
     },
   );

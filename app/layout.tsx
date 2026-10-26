@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Чат с выбором модели",
-  description: "Простой чат без памяти диалога через Polza.ai",
+  description: "Простой чат с короткой историей через Polza.ai",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

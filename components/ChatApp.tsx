@@ -2,21 +2,19 @@
 
 import { FormEvent, useState } from "react";
 
+import { MESSAGE_LIMIT, trimMessages, type ChatMessage } from "@/lib/chat";
 import { MODELS } from "@/lib/models";
 
 import { MessageBubble } from "./MessageBubble";
 
-type Exchange = {
-  question: string;
-  answer: string;
-  modelId: string;
-  modelLabel: string;
+type UiMessage = ChatMessage & {
+  modelLabel?: string;
 };
 
 export function ChatApp() {
   const [modelId, setModelId] = useState(MODELS[0]?.id ?? "");
   const [text, setText] = useState("");
-  const [exchange, setExchange] = useState<Exchange | null>(null);
+  const [messages, setMessages] = useState<UiMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -31,14 +29,24 @@ export function ChatApp() {
       return;
     }
 
+    const nextMessages = trimMessages([
+      ...messages,
+      { role: "user" as const, content: trimmed },
+    ]);
+
     setLoading(true);
     setError(null);
+    setMessages(nextMessages);
+    setText("");
 
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: modelId, text: trimmed }),
+        body: JSON.stringify({
+          model: modelId,
+          messages: nextMessages.map(({ role, content }) => ({ role, content })),
+        }),
       });
 
       const data = (await response.json()) as {
@@ -48,18 +56,23 @@ export function ChatApp() {
 
       if (!response.ok || !data.reply) {
         setError(data.error ?? "Не удалось получить ответ");
+        setMessages(messages);
         return;
       }
 
-      setExchange({
-        question: trimmed,
-        answer: data.reply,
-        modelId,
-        modelLabel: selectedModel?.label ?? modelId,
-      });
-      setText("");
+      setMessages(
+        trimMessages([
+          ...nextMessages,
+          {
+            role: "assistant",
+            content: data.reply,
+            modelLabel: selectedModel?.label ?? modelId,
+          },
+        ]),
+      );
     } catch {
       setError("Сеть недоступна или сервер не отвечает");
+      setMessages(messages);
     } finally {
       setLoading(false);
     }
@@ -74,7 +87,7 @@ export function ChatApp() {
               Чат с выбором модели
             </h1>
             <p className="text-xs text-[var(--muted)]">
-              Без памяти диалога · один вопрос → один ответ
+              История до {MESSAGE_LIMIT} сообщений · дальше старые отбрасываются
             </p>
           </div>
 
@@ -98,23 +111,21 @@ export function ChatApp() {
 
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-4">
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto pb-4">
-          {!exchange && !error ? (
+          {messages.length === 0 && !error ? (
             <div className="m-auto max-w-sm rounded-2xl bg-[var(--panel)] px-5 py-4 text-center text-sm text-[var(--muted)] shadow-sm">
-              Напиши сообщение и отправь. Следующая отправка не помнит
-              предыдущую — в Polza уходит только текущий текст.
+              Напиши сообщение и отправь. В Polza уходит история до{" "}
+              {MESSAGE_LIMIT} последних сообщений.
             </div>
           ) : null}
 
-          {exchange ? (
-            <>
-              <MessageBubble role="user" text={exchange.question} />
-              <MessageBubble
-                role="assistant"
-                text={exchange.answer}
-                modelLabel={exchange.modelLabel}
-              />
-            </>
-          ) : null}
+          {messages.map((message, index) => (
+            <MessageBubble
+              key={`${message.role}-${index}-${message.content.slice(0, 24)}`}
+              role={message.role}
+              text={message.content}
+              modelLabel={message.modelLabel}
+            />
+          ))}
 
           {error ? (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
